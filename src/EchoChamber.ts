@@ -41,7 +41,29 @@ class EchoChamber {
             reconnectMultiplier: 2,
             maxReconnectDelay: 30000,
             logger: (category, message, ...args) => {
-                console.log(`EchoChamber [${category}]: ${message}`, ...args);
+                let style = "";
+                let textStyle = "color: #a9a9a9;";
+
+                switch (category) {
+                    case 'client':
+                        style = "background: #007CF0; color: #E1E1E1;";
+                        break;
+                    case 'user':
+                        style = "background: #009688; color: #E1E1E1;";
+                        break;
+                    case 'server':
+                        style = "background: #4CAF50; color: #E1E1E1;";
+                        break;
+                    case 'error':
+                        style = "background: #F44336; color: #E1E1E1;";
+                        break;
+                    case 'info':
+                    default:
+                        style = "background: #9C27B0; color: #E1E1E1;";
+                        break;
+                }
+
+                console.log(`%cEchoChamber%c: ${message}`, `font-weight: bold; padding: 3px 5px; ${style} border-radius: 4px;`, textStyle, ...args);
             },
             ...options,
         };
