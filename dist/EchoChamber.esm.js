@@ -38,7 +38,7 @@ class EchoChamber {
         this._pingInterval = null;
         this._connectionState = 'connecting';
         this._serverUrl = this._formatServerUrl(serverUrl);
-        this._options = Object.assign({ pingInterval: 30000, reconnectDelay: 1000, reconnectMultiplier: 2, maxReconnectDelay: 30000, logger: (category, message, ...args) => {
+        this.options = Object.assign({ pingInterval: 30000, reconnectDelay: 1000, reconnectMultiplier: 2, maxReconnectDelay: 30000, logger: (category, message, ...args) => {
                 let style = "";
                 let textStyle = "color: #a9a9a9;";
                 switch (category) {
@@ -73,6 +73,9 @@ class EchoChamber {
     set _internalConnectionState(connectionState) {
         this._connectionState = connectionState;
     }
+    set newOptions(options) {
+        this.options = Object.assign(Object.assign({}, this.options), options);
+    }
     get _internalMessageQueue() {
         return this._messageQueue;
     }
@@ -97,12 +100,6 @@ class EchoChamber {
     set _internalPingInterval(pingInterval) {
         this._pingInterval = pingInterval;
     }
-    get _internalOptions() {
-        return this._options;
-    }
-    set _internalOptions(options) {
-        this._options = Object.assign(Object.assign({}, this._options), options);
-    }
     get _internalServerUrl() {
         return this._serverUrl;
     }
@@ -110,7 +107,7 @@ class EchoChamber {
         this._serverUrl = url;
     }
     log(category, message, ...args) {
-        this._options.logger(category, message, ...args);
+        this.options.logger(category, message, ...args);
     }
     _formatServerUrl(serverUrl) {
         if (serverUrl.startsWith("/")) {
@@ -135,7 +132,7 @@ class EchoChamber {
             if (this._pingInterval !== null) {
                 clearInterval(this._pingInterval);
             }
-            this._pingInterval = setInterval(() => this._send({ action: 'ping' }), this._options.pingInterval);
+            this._pingInterval = setInterval(() => this._send({ action: 'ping' }), this.options.pingInterval);
         });
     }
     _onOpen() {
@@ -144,7 +141,7 @@ class EchoChamber {
         this._reconnectAttempts = 0;
         this._flushQueue();
         this._subscriptions.forEach(room => this.sub(room));
-        (_b = (_a = this._options).onConnect) === null || _b === void 0 ? void 0 : _b.call(_a);
+        (_b = (_a = this.options).onConnect) === null || _b === void 0 ? void 0 : _b.call(_a);
     }
     _onMessage(event) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -163,22 +160,22 @@ class EchoChamber {
             }
             const handlers = this._eventHandlers[data.action];
             handlers === null || handlers === void 0 ? void 0 : handlers.forEach(handler => handler(data));
-            (_b = (_a = this._options).onMessage) === null || _b === void 0 ? void 0 : _b.call(_a, data);
+            (_b = (_a = this.options).onMessage) === null || _b === void 0 ? void 0 : _b.call(_a, data);
         });
     }
     _onError(event) {
         var _a, _b;
         this._updateConnectionState('error');
-        (_b = (_a = this._options).onError) === null || _b === void 0 ? void 0 : _b.call(_a, event);
+        (_b = (_a = this.options).onError) === null || _b === void 0 ? void 0 : _b.call(_a, event);
     }
     _onClose() {
         var _a, _b;
         this._updateConnectionState('closed');
-        (_b = (_a = this._options).onClose) === null || _b === void 0 ? void 0 : _b.call(_a);
+        (_b = (_a = this.options).onClose) === null || _b === void 0 ? void 0 : _b.call(_a);
         if (this._connectionState !== 'connecting') {
-            const delay = Math.min(this._options.reconnectDelay * Math.pow(this._options.reconnectMultiplier, this._reconnectAttempts), this._options.maxReconnectDelay);
+            const delay = Math.min(this.options.reconnectDelay * Math.pow(this.options.reconnectMultiplier, this._reconnectAttempts), this.options.maxReconnectDelay);
             setTimeout(() => {
-                if (this._options.reconnect) {
+                if (this.options.reconnect) {
                     this.connect();
                 }
             }, delay);
@@ -247,5 +244,5 @@ class EchoChamber {
     }
 }
 
-export { EchoChamber as default };
+export { EchoChamber };
 //# sourceMappingURL=EchoChamber.esm.js.map

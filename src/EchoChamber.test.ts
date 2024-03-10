@@ -374,7 +374,7 @@ describe("EchoChamber WebSocket interactions", () => {
         setTimeout(() => {
             expect(attemptCounts).toBeGreaterThan(1);
             if (echoChamber !== null) {
-                echoChamber._internalOptions.reconnect = false;
+                echoChamber.options.reconnect = false;
                 echoChamber.cleanup();
             }
             done();
@@ -488,17 +488,17 @@ describe("EchoChamber WebSocket interactions", () => {
             pingInterval: 15000,
         };
 
-        echoChamber._internalOptions = newOptions;
+        echoChamber.newOptions = newOptions;
 
-        expect(echoChamber._internalOptions.reconnect).toBe(true);
-        expect(echoChamber._internalOptions.pingInterval).toBe(15000);
+        expect(echoChamber.options.reconnect).toBe(true);
+        expect(echoChamber.options.pingInterval).toBe(15000);
 
-        expect(echoChamber._internalOptions.reconnectDelay).toBe(1000);
-        expect(echoChamber._internalOptions.reconnectMultiplier).toBe(2);
-        expect(echoChamber._internalOptions.maxReconnectDelay).toBe(30000);
+        expect(echoChamber.options.reconnectDelay).toBe(1000);
+        expect(echoChamber.options.reconnectMultiplier).toBe(2);
+        expect(echoChamber.options.maxReconnectDelay).toBe(30000);
 
-        expect(echoChamber._internalOptions.logger).toBeDefined();
-        expect(typeof echoChamber._internalOptions.logger).toBe("function");
+        expect(echoChamber.options.logger).toBeDefined();
+        expect(typeof echoChamber.options.logger).toBe("function");
     });
 
     describe("EchoChamber formats relative URL to WebSocket URL based on window.location", () => {

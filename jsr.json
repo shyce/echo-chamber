@@ -1,0 +1,5 @@
+{
+    "name": "@shyce/echo-chamber",
+    "version": "0.1.0",
+    "exports": "./src/EchoChamber.ts"
+  }

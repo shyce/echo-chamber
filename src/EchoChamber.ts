@@ -6,10 +6,10 @@ export interface MessageData {
 
 export type ConnectionState = 'connecting' | 'connected' | 'error' | 'closed';
 
-class EchoChamber {
+export class EchoChamber {
     private _serverUrl: string;
     private _socket: WebSocket | null = null;
-    private _options: {
+    public options: {
         pingInterval: number;
         reconnectDelay: number;
         reconnectMultiplier: number;
@@ -33,9 +33,9 @@ class EchoChamber {
     private _boundOnError: (event: Event) => void;
     private _boundOnClose: () => void;
 
-    constructor(serverUrl: string, options: Partial<typeof EchoChamber.prototype._options> = {}) {
+    constructor(serverUrl: string, options: Partial<typeof EchoChamber.prototype.options> = {}) {
         this._serverUrl = this._formatServerUrl(serverUrl);
-        this._options = {
+        this.options = {
             pingInterval: 30000,
             reconnectDelay: 1000,
             reconnectMultiplier: 2,
@@ -82,11 +82,15 @@ class EchoChamber {
         this._connectionState = connectionState;
     }
 
+    public set newOptions(options: Partial<typeof EchoChamber.prototype.options>) {
+        this.options = {...this.options, ...options};
+    }
+
     public get _internalMessageQueue(): string[] {
         return this._messageQueue;
     }
 
-    public set _internalMessageQueue(messageQueue) {
+    public set _internalMessageQueue(messageQueue: string[]) {
         this._messageQueue = messageQueue;
     }
 
@@ -114,14 +118,6 @@ class EchoChamber {
         this._pingInterval = pingInterval;
     }
 
-    public get _internalOptions(): typeof EchoChamber.prototype._options {
-        return this._options;
-    }
-
-    public set _internalOptions(options: Partial<typeof EchoChamber.prototype._options>) {
-        this._options = {...this._options, ...options};
-    }
-
     public get _internalServerUrl(): string {
         return this._serverUrl;
     }
@@ -131,7 +127,7 @@ class EchoChamber {
     }
 
     public log(category: string, message: string, ...args: any[]) {
-        this._options.logger(category, message, ...args)
+        this.options.logger(category, message, ...args)
     }
 
     private _formatServerUrl(serverUrl: string): string {
@@ -161,7 +157,7 @@ class EchoChamber {
         if (this._pingInterval !== null) {
             clearInterval(this._pingInterval);
         }
-        this._pingInterval = setInterval(() => this._send({ action: 'ping' }), this._options.pingInterval);
+        this._pingInterval = setInterval(() => this._send({ action: 'ping' }), this.options.pingInterval);
     }
 
     private _onOpen(): void {
@@ -169,7 +165,7 @@ class EchoChamber {
         this._reconnectAttempts = 0;
         this._flushQueue();
         this._subscriptions.forEach(room => this.sub(room));
-        this._options.onConnect?.();
+        this.options.onConnect?.();
     }
 
     private async _onMessage(event: MessageEvent): Promise<void> {
@@ -189,24 +185,24 @@ class EchoChamber {
         const handlers = this._eventHandlers[data.action];
         handlers?.forEach(handler => handler(data));
 
-        this._options.onMessage?.(data);
+        this.options.onMessage?.(data);
     }
 
     private _onError(event: Event): void {
         this._updateConnectionState('error');
-        this._options.onError?.(event);
+        this.options.onError?.(event);
     }
 
     private _onClose(): void {
         this._updateConnectionState('closed');
-        this._options.onClose?.();
+        this.options.onClose?.();
         if (this._connectionState !== 'connecting') {
             const delay = Math.min(
-                this._options.reconnectDelay * Math.pow(this._options.reconnectMultiplier, this._reconnectAttempts),
-                this._options.maxReconnectDelay
+                this.options.reconnectDelay * Math.pow(this.options.reconnectMultiplier, this._reconnectAttempts),
+                this.options.maxReconnectDelay
             );
             setTimeout(() => {
-                if (this._options.reconnect) {
+                if (this.options.reconnect) {
                     this.connect();
                 }
             }, delay);
@@ -281,5 +277,3 @@ class EchoChamber {
     }
 
 }
-
-export default EchoChamber
