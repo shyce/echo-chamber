@@ -1,6 +1,6 @@
 export default {
   preset: 'ts-jest',
-  testEnvironment: 'node',
+  testEnvironment: 'jsdom',
   testMatch: ['<rootDir>/**/*.test.ts'],
   testPathIgnorePatterns: ['/node_modules/'],
   coverageDirectory: './coverage',
@@ -8,4 +8,5 @@ export default {
   reporters: ['default', 'jest-junit'],
   globals: { 'ts-jest': { diagnostics: false } },
   transform: {},
+  collectCoverage: true,
 };

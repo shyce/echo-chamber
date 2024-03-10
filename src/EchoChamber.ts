@@ -1,10 +1,10 @@
-interface MessageData {
+export interface MessageData {
     action: string;
     room?: string;
     payload?: object;
 }
 
-type ConnectionState = 'connecting' | 'connected' | 'error' | 'closed';
+export type ConnectionState = 'connecting' | 'connected' | 'error' | 'closed';
 
 class EchoChamber {
     private _serverUrl: string;
@@ -92,13 +92,35 @@ class EchoChamber {
         this._pingInterval = pingInterval;
     }
 
+    public get _internalOptions(): typeof EchoChamber.prototype._options {
+        return this._options;
+    }
+
+    public set _internalOptions(options: Partial<typeof EchoChamber.prototype._options>) {
+        this._options = {...this._options, ...options};
+    }
+
+    public get _internalServerUrl(): string {
+        return this._serverUrl;
+    }
+
+    public set _internalServerUrl(url: string) {
+        this._serverUrl = url;
+    }
+
+    public log(category: string, message: string, ...args: any[]) {
+        this._options.logger(category, message, ...args)
+    }
+
     private _formatServerUrl(serverUrl: string): string {
         if (serverUrl.startsWith("/")) {
-            const { hostname, port } = window.location;
-            return `wss://${hostname}${port ? `:${port}` : ''}${serverUrl}`;
+            const hostname = window.location.hostname;
+            const port = window.location.port ? `:${window.location.port}` : '';
+            return `wss://${hostname}${port}${serverUrl}`;
         }
-        return serverUrl;
+        return serverUrl
     }
+    
 
     private async connect(): Promise<void> {
         this._updateConnectionState('connecting');
@@ -133,12 +155,12 @@ class EchoChamber {
         try {
             data = JSON.parse(event.data);
         } catch (e) {
-            this._options.logger('error', 'Error parsing message', e);
+            this.log('error', 'Error parsing message', e);
             return;
         }
 
         if (data.action === 'pong') {
-            this._options.logger('info', 'Pong received');
+            this.log('info', 'Pong received');
             return;
         }
 
@@ -156,23 +178,30 @@ class EchoChamber {
     private _onClose(): void {
         this._updateConnectionState('closed');
         this._options.onClose?.();
-        if (this._options.reconnect && this._connectionState !== 'connecting') {
-            const delay = Math.min(this._options.reconnectDelay * (this._options.reconnectMultiplier ** this._reconnectAttempts), this._options.maxReconnectDelay);
-            setTimeout(() => this.connect(), delay);
+        if (this._connectionState !== 'connecting') {
+            const delay = Math.min(
+                this._options.reconnectDelay * Math.pow(this._options.reconnectMultiplier, this._reconnectAttempts),
+                this._options.maxReconnectDelay
+            );
+            setTimeout(() => {
+                if (this._options.reconnect) {
+                    this.connect();
+                }
+            }, delay);
             this._reconnectAttempts++;
         }
     }
 
     private _updateConnectionState(state: ConnectionState): void {
         this._connectionState = state;
-        this._options.logger('info', `Connection state updated to ${state}`);
+        this.log('info', `Connection state updated to ${state}`);
     }
 
     private async _send(data: MessageData): Promise<void> {
         if (this._socket?.readyState === WebSocket.OPEN) {
             const message = JSON.stringify(data);
             this._socket.send(message);
-            this._options.logger('info', `Sent: ${data.action}`, data);
+            this.log('info', `Sent: ${data.action}`, data);
         } else {
             this._messageQueue.push(JSON.stringify(data));
         }
@@ -181,7 +210,7 @@ class EchoChamber {
     private _flushQueue(): void {
         this._messageQueue.forEach(data => {
             this._socket?.send(data);
-            this._options.logger('info', 'Flushed message from queue');
+            this.log('info', 'Flushed message from queue');
         });
         this._messageQueue = [];
     }
