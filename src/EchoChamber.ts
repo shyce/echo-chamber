@@ -156,7 +156,7 @@ class EchoChamber {
     private _onClose(): void {
         this._updateConnectionState('closed');
         this._options.onClose?.();
-        if (this._options.reconnect && this._connectionState !== 'connecting') { // Prevent reconnection attempts if already trying to connect.
+        if (this._options.reconnect && this._connectionState !== 'connecting') {
             const delay = Math.min(this._options.reconnectDelay * (this._options.reconnectMultiplier ** this._reconnectAttempts), this._options.maxReconnectDelay);
             setTimeout(() => this.connect(), delay);
             this._reconnectAttempts++;
@@ -208,15 +208,12 @@ class EchoChamber {
     }
 
     public cleanup(): void {
-        // Clear the ping interval.
         if (this._pingInterval !== null) {
             clearInterval(this._pingInterval);
             this._pingInterval = null;
         }
 
-        // Close and nullify the WebSocket connection.
         if (this._socket) {
-            // Remove event listeners to prevent memory leaks.
             this._socket.removeEventListener('open', this._boundOnOpen);
             this._socket.removeEventListener('message', this._boundOnMessage);
             this._socket.removeEventListener('error', this._boundOnError);

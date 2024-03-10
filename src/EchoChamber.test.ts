@@ -19,7 +19,7 @@ describe('EchoChamber WebSocket interactions', () => {
         const testMessage = { action: 'subscribe', room: 'testRoom' };
         echoChamber = new EchoChamber(serverUrl);
 
-        echoChamber._internalMessageQueue.push(JSON.stringify(testMessage)); // Simulate adding a message to the queue before connection is established
+        echoChamber._internalMessageQueue.push(JSON.stringify(testMessage));
 
         mockServer.on('connection', (socket) => {
             socket.on('message', (data) => {
@@ -32,7 +32,7 @@ describe('EchoChamber WebSocket interactions', () => {
     });
 
     test('EchoChamber attempts to reconnect after close', (done) => {
-        echoChamber = new EchoChamber(serverUrl, { reconnect: true, reconnectDelay: 10 }); // Use short delay for test
+        echoChamber = new EchoChamber(serverUrl, { reconnect: true, reconnectDelay: 10 });
 
         let connections = 0;
 
@@ -88,8 +88,6 @@ describe('EchoChamber WebSocket interactions', () => {
     test('EchoChamber flushes message queue upon connection', done => {
         const testMessage = { action: 'testAction', room: 'testRoom' };
         echoChamber = new EchoChamber(serverUrl, { reconnect: false });
-
-        // Simulate adding a message to the queue before connection is established
         echoChamber._internalMessageQueue.push(JSON.stringify(testMessage));
 
         mockServer.on('connection', socket => {
@@ -120,9 +118,9 @@ describe('EchoChamber WebSocket interactions', () => {
     test('EchoChamber sends a ping at the expected interval', done => {
         const pingInterval = 1000;
         echoChamber = new EchoChamber(serverUrl, { pingInterval });
-    
+
         let pingReceived = false;
-    
+
         mockServer.on('connection', socket => {
             socket.on('message', data => {
                 if (typeof data === 'string') {
@@ -133,7 +131,7 @@ describe('EchoChamber WebSocket interactions', () => {
                 }
             });
         });
-    
+
         setTimeout(() => {
             expect(pingReceived).toBe(true);
             done();
