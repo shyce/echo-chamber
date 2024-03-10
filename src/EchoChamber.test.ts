@@ -76,12 +76,12 @@ describe("EchoChamber WebSocket interactions", () => {
     });
 
     test("EchoChamber handles onError callback", (done) => {
-        echoChamber = new EchoChamber(serverUrl, {
-            onError: (event) => {
-                expect(event).toBeTruthy();
-                done();
-            },
-        });
+        echoChamber = new EchoChamber(serverUrl);
+
+        echoChamber.on('error', (data) => {
+            expect(data).toBeTruthy();
+            done();
+        })
 
         mockServer.on("connection", () => {
             mockServer.simulate("error");
@@ -224,13 +224,14 @@ describe("EchoChamber WebSocket interactions", () => {
 
         mockServer.on("connection", (socket) => {
             socket.on("message", (data) => {
-                console.log("DATER", data)
-                const message = JSON.parse(data);
-                expect(message).toEqual({
-                    action: "publish",
-                    room: testMessage.room,
-                    payload: testMessage.payload,
-                });
+                if (typeof data === "string") {
+                    const message = JSON.parse(data);
+                    expect(message).toEqual({
+                        action: "publish",
+                        room: testMessage.room,
+                        payload: testMessage.payload,
+                    });
+                }
             });
         });
 
@@ -250,10 +251,8 @@ describe("EchoChamber WebSocket interactions", () => {
     test("EchoChamber calls onError callback with an error event", (done) => {
         const onErrorSpy = jest.fn();
 
-        echoChamber = new EchoChamber(serverUrl, {
-            onError: onErrorSpy,
-        });
-
+        echoChamber = new EchoChamber(serverUrl);
+        echoChamber.on('error', onErrorSpy)
         mockServer.on("connection", () => {
             mockServer.simulate("error");
         });
@@ -267,10 +266,8 @@ describe("EchoChamber WebSocket interactions", () => {
     test("EchoChamber calls onClose callback when the connection is closed", (done) => {
         const onCloseSpy = jest.fn();
 
-        echoChamber = new EchoChamber(serverUrl, {
-            onClose: onCloseSpy,
-        });
-
+        echoChamber = new EchoChamber(serverUrl);
+        echoChamber.on('close', onCloseSpy)
         mockServer.on("connection", (socket) => {
             socket.close();
         });
@@ -305,8 +302,8 @@ describe("EchoChamber WebSocket interactions", () => {
         const onOpenSpy = jest.fn();
         echoChamber = new EchoChamber(serverUrl, {
             logger: mockLogger,
-            onConnect: onOpenSpy,
         });
+        echoChamber.on('connect', onOpenSpy)
 
         setTimeout(() => {
             expect(mockLogger).toHaveBeenCalledWith(
@@ -352,9 +349,12 @@ describe("EchoChamber WebSocket interactions", () => {
             reconnectDelay: initialDelay,
             reconnectMultiplier: multiplier,
             maxReconnectDelay: maxDelay,
-            onConnect: () => { attemptCounts++; },
             logger: (category, message) => console.log(message)
         });
+
+        echoChamber.on('connect', () => {
+            attemptCounts++;
+        })
 
         mockServer.on('connection', socket => {
             setTimeout(() => socket.close(), 50);
@@ -515,9 +515,9 @@ describe("EchoChamber WebSocket interactions", () => {
         const testData = { action: "test", payload: { message: "Test message" } };
         const mockOnMessage = jest.fn();
 
-        echoChamber = new EchoChamber(serverUrl, {
-            onMessage: mockOnMessage
-        });
+        echoChamber = new EchoChamber(serverUrl);
+
+        echoChamber.on('message', mockOnMessage)
 
         mockServer.on("connection", (socket) => {
             socket.send(JSON.stringify(testData));

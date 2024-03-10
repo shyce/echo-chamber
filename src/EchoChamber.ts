@@ -25,10 +25,6 @@ export class EchoChamber {
         autoconnect: boolean;
         logger: (category: string, message: string, ...args: any[]) => void;
         maxReconnectDelay: number;
-        onClose?: () => void;
-        onConnect?: () => void;
-        onError?: (event: Event) => void;
-        onMessage?: (data: any) => void;
         pingInterval: number;
         reconnect?: boolean;
         reconnectDelay: number;
@@ -187,7 +183,7 @@ export class EchoChamber {
             this._socket.close();
         } else {
             this._updateConnectionState('closed');
-            this.options.onClose?.();
+            this.triggerEvent('close');
         }
     
         this._messageQueue = [];
@@ -203,7 +199,7 @@ export class EchoChamber {
         this._reconnectAttempts = 0;
         this._flushQueue();
         [...this._subscriptions, ...this._pendingSubscriptions].forEach(room => this.sub(room));
-        this.options.onConnect?.();
+        this.triggerEvent('connect');
     }
 
     private async _onMessage(event: MessageEvent): Promise<void> {
@@ -214,6 +210,7 @@ export class EchoChamber {
             this.log('error', 'Error parsing message', e);
             return;
         }
+        this.triggerEvent('message', data);
 
         if (data.action === 'subscribed' && data.room) {
             this._subscribed(data.room);
@@ -229,20 +226,18 @@ export class EchoChamber {
 
         const handlers = this._eventHandlers[data.action];
         handlers?.forEach(handler => handler(data));
-
-        this.options.onMessage?.(data);
     }
 
     private _onError(event: Event): void {
         this.log('error', 'WebSocket error encountered', event);
         this._updateConnectionState('error');
-        this.options.onError?.(event);
+        this.triggerEvent('error', event);
     }
 
     private _onClose(): void {
         this.log('client', 'WebSocket connection closed');
         this._updateConnectionState('closed');
-        this.options.onClose?.();
+        this.triggerEvent('close');
         if (this._connectionState !== 'connecting') {
             const delay = Math.min(
                 this.options.reconnectDelay * Math.pow(this.options.reconnectMultiplier, this._reconnectAttempts),
@@ -315,11 +310,17 @@ export class EchoChamber {
         this.log('user', `User published to room: ${room}`, payload);
     }
 
-    public on(eventType: string, handler: (data: any) => void): void {
+    public on(eventType: string, handler: (data?: any) => void): void {
         if (!this._eventHandlers[eventType]) {
             this._eventHandlers[eventType] = [];
         }
         this._eventHandlers[eventType].push(handler);
+    }
+    
+    private triggerEvent(eventType: string, data?: any): void {
+        if (this._eventHandlers[eventType]) {
+            this._eventHandlers[eventType].forEach(handler => handler(data));
+        }
     }
 
     public cleanup(): void {

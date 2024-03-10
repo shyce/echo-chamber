@@ -149,7 +149,6 @@ class EchoChamber {
         return this._socket !== null && this._socket.readyState === WebSocket.OPEN;
     }
     disconnect() {
-        var _a, _b;
         if (this._pingInterval !== null) {
             clearInterval(this._pingInterval);
             this._pingInterval = null;
@@ -159,7 +158,7 @@ class EchoChamber {
         }
         else {
             this._updateConnectionState('closed');
-            (_b = (_a = this.options).onClose) === null || _b === void 0 ? void 0 : _b.call(_a);
+            this.triggerEvent('close');
         }
         this._messageQueue = [];
         this._subscriptions.clear();
@@ -167,17 +166,15 @@ class EchoChamber {
         this.log('client', 'WebSocket client disconnected');
     }
     _onOpen() {
-        var _a, _b;
         this.log('server', 'Connection established');
         this._updateConnectionState('connected');
         this._reconnectAttempts = 0;
         this._flushQueue();
         [...this._subscriptions, ...this._pendingSubscriptions].forEach(room => this.sub(room));
-        (_b = (_a = this.options).onConnect) === null || _b === void 0 ? void 0 : _b.call(_a);
+        this.triggerEvent('connect');
     }
     _onMessage(event) {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a, _b;
             let data;
             try {
                 data = JSON.parse(event.data);
@@ -186,6 +183,7 @@ class EchoChamber {
                 this.log('error', 'Error parsing message', e);
                 return;
             }
+            this.triggerEvent('message', data);
             if (data.action === 'subscribed' && data.room) {
                 this._subscribed(data.room);
                 return;
@@ -199,20 +197,17 @@ class EchoChamber {
             }
             const handlers = this._eventHandlers[data.action];
             handlers === null || handlers === void 0 ? void 0 : handlers.forEach(handler => handler(data));
-            (_b = (_a = this.options).onMessage) === null || _b === void 0 ? void 0 : _b.call(_a, data);
         });
     }
     _onError(event) {
-        var _a, _b;
         this.log('error', 'WebSocket error encountered', event);
         this._updateConnectionState('error');
-        (_b = (_a = this.options).onError) === null || _b === void 0 ? void 0 : _b.call(_a, event);
+        this.triggerEvent('error', event);
     }
     _onClose() {
-        var _a, _b;
         this.log('client', 'WebSocket connection closed');
         this._updateConnectionState('closed');
-        (_b = (_a = this.options).onClose) === null || _b === void 0 ? void 0 : _b.call(_a);
+        this.triggerEvent('close');
         if (this._connectionState !== 'connecting') {
             const delay = Math.min(this.options.reconnectDelay * Math.pow(this.options.reconnectMultiplier, this._reconnectAttempts), this.options.maxReconnectDelay);
             setTimeout(() => {
@@ -286,6 +281,11 @@ class EchoChamber {
             this._eventHandlers[eventType] = [];
         }
         this._eventHandlers[eventType].push(handler);
+    }
+    triggerEvent(eventType, data) {
+        if (this._eventHandlers[eventType]) {
+            this._eventHandlers[eventType].forEach(handler => handler(data));
+        }
     }
     cleanup() {
         // Clear any pending subscription timeouts
