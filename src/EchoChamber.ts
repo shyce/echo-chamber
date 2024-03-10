@@ -24,6 +24,7 @@ export class EchoChamber {
     public options: {
         autoconnect: boolean;
         logger: (category: string, message: string, ...args: any[]) => void;
+        log: boolean;
         maxReconnectDelay: number;
         pingInterval: number;
         reconnect?: boolean;
@@ -40,30 +41,33 @@ export class EchoChamber {
             reconnectDelay: 1000,
             reconnectMultiplier: 2,
             logger: (category, message, ...args) => {
+                if (!this.options.log) return;
+
                 let style = "";
-                let textStyle = "color: #a9a9a9;";
+                const sharedStyle = "font-weight: bold; padding: 3px 5px; border-radius: 4px;"
 
                 switch (category) {
-                    case 'client':
+                    case 'Client':
                         style = "background: #007CF0; color: #E1E1E1;";
                         break;
-                    case 'user':
+                    case 'User':
                         style = "background: #009688; color: #E1E1E1;";
                         break;
-                    case 'server':
+                    case 'Server':
                         style = "background: #4CAF50; color: #E1E1E1;";
                         break;
-                    case 'error':
+                    case 'Error':
                         style = "background: #F44336; color: #E1E1E1;";
                         break;
-                    case 'info':
+                    case 'Info':
                     default:
                         style = "background: #9C27B0; color: #E1E1E1;";
                         break;
                 }
 
-                console.log(`%cEchoChamber%c: ${message}`, `font-weight: bold; padding: 3px 5px; ${style} border-radius: 4px;`, textStyle, ...args);
+                console.log(`%c${category}%c: ${message}`, `${sharedStyle}${style}`, ...args);
             },
+            log: true,
             ...options,
         };
         this._boundOnOpen = this._onOpen.bind(this);
@@ -115,7 +119,7 @@ export class EchoChamber {
         return this._socket;
     }
 
-    public set _internalSocket(socket: WebSocket) {
+    public set _internalSocket(socket: WebSocket | null) {
         this._socket = socket;
     }
 
@@ -135,6 +139,14 @@ export class EchoChamber {
         this._serverUrl = url;
     }
 
+    public get _internalEventHandlers(): { [key: string]: ((data: any) => void)[]; } {
+        return this._eventHandlers;
+    }
+
+    public set _internalEventHandlers(handlers: { [key: string]: ((data: any) => void)[]; }) {
+        this._eventHandlers = handlers;
+    }
+
     public log(category: string, message: string, ...args: any[]) {
         this.options.logger(category, message, ...args)
     }
@@ -148,9 +160,20 @@ export class EchoChamber {
         return serverUrl
     }
 
+    public async send(data: MessageData): Promise<void> {
+        if (this._socket?.readyState === WebSocket.OPEN) {
+            this.log('Client', `Sending message: ${data.action}`, data);
+            const message = JSON.stringify(data);
+            this._socket.send(message);
+        } else {
+            this.log('Client', 'Queueing message', data);
+            this._messageQueue.push(JSON.stringify(data));
+        }
+    }
+
     public async connect(): Promise<void> {
         this._updateConnectionState('connecting');
-        this.log('client', 'Attempting to connect', this._serverUrl);
+        this.log('Client', 'Attempting to connect', this._serverUrl);
         if (this._socket) {
             this._socket.close();
             this._socket = null;
@@ -166,14 +189,14 @@ export class EchoChamber {
         if (this._pingInterval !== null) {
             clearInterval(this._pingInterval);
         }
-        this._pingInterval = setInterval(() => this._send({ action: 'ping' }), this.options.pingInterval);
+        this._pingInterval = setInterval(() => this.send({ action: 'ping' }), this.options.pingInterval);
     }
 
     public connected(): boolean {
         return this._socket !== null && this._socket.readyState === WebSocket.OPEN;
     }
     
-    public disconnect(): void {
+    public async disconnect(): Promise<void> {
         if (this._pingInterval !== null) {
             clearInterval(this._pingInterval);
             this._pingInterval = null;
@@ -181,25 +204,26 @@ export class EchoChamber {
     
         if (this._socket && (this._socket.readyState === WebSocket.OPEN || this._socket.readyState === WebSocket.CONNECTING)) {
             this._socket.close();
-        } else {
-            this._updateConnectionState('closed');
-            this.triggerEvent('close');
+            this._socket = null;
         }
+
+        this._updateConnectionState('closed');
+        this._triggerEvent('close');
     
         this._messageQueue = [];
         this._subscriptions.clear();
         this._pendingSubscriptions.clear();
     
-        this.log('client', 'WebSocket client disconnected');
+        this.log('Client', 'WebSocket client disconnected');
     }
 
     private _onOpen(): void {
-        this.log('server', 'Connection established');
+        this.log('Server', 'Connection established');
         this._updateConnectionState('connected');
         this._reconnectAttempts = 0;
         this._flushQueue();
         [...this._subscriptions, ...this._pendingSubscriptions].forEach(room => this.sub(room));
-        this.triggerEvent('connect');
+        this._triggerEvent('connect');
     }
 
     private async _onMessage(event: MessageEvent): Promise<void> {
@@ -207,10 +231,10 @@ export class EchoChamber {
         try {
             data = JSON.parse(event.data);
         } catch (e) {
-            this.log('error', 'Error parsing message', e);
+            this.log('Error', 'Error parsing message', e);
             return;
         }
-        this.triggerEvent('message', data);
+        this._triggerEvent('message', data);
 
         if (data.action === 'subscribed' && data.room) {
             this._subscribed(data.room);
@@ -218,26 +242,26 @@ export class EchoChamber {
         }
 
         if (data.action === 'pong') {
-            this.log('info', 'Pong received');
+            this.log('Info', 'Pong received');
             return;
         } else {
-            this.log('server', 'Message received', event.data);
+            this.log('Server', 'Message received', event.data);
         }
 
         const handlers = this._eventHandlers[data.action];
-        handlers?.forEach(handler => handler(data));
+        handlers.forEach(handler => handler(data));
     }
 
     private _onError(event: Event): void {
-        this.log('error', 'WebSocket error encountered', event);
+        this.log('Error', 'WebSocket error encountered', event);
         this._updateConnectionState('error');
-        this.triggerEvent('error', event);
+        this._triggerEvent('error', event);
     }
 
     private _onClose(): void {
-        this.log('client', 'WebSocket connection closed');
+        this.log('Client', 'WebSocket connection closed');
         this._updateConnectionState('closed');
-        this.triggerEvent('close');
+        this._triggerEvent('close');
         if (this._connectionState !== 'connecting') {
             const delay = Math.min(
                 this.options.reconnectDelay * Math.pow(this.options.reconnectMultiplier, this._reconnectAttempts),
@@ -254,43 +278,48 @@ export class EchoChamber {
 
     private _updateConnectionState(state: ConnectionState): void {
         this._connectionState = state;
-        this.log('info', `Connection state updated to ${state}`);
-    }
-
-    private async _send(data: MessageData): Promise<void> {
-        if (this._socket?.readyState === WebSocket.OPEN) {
-            this.log('client', `Sending message: ${data.action}`, data);
-            const message = JSON.stringify(data);
-            this._socket.send(message);
-        } else {
-            this.log('client', 'Queueing message', data);
-            this._messageQueue.push(JSON.stringify(data));
-        }
+        this.log('Info', `Connection state updated to ${state}`);
     }
 
     private _flushQueue(): void {
         this._messageQueue.forEach(data => {
             this._socket?.send(data);
-            this.log('info', 'Flushed message from queue');
+            this.log('Info', 'Flushed message from queue');
         });
-        this._messageQueue = [];
+        if (this._socket?.readyState === WebSocket.OPEN) {
+            this._messageQueue = [];
+        }
+    }
+
+    public _internalFlushQueueu(): void {
+        this._flushQueue();
     }
     
     private _subscribed(room: string): void {
         if (this._pendingSubscriptions.has(room)) {
             this._pendingSubscriptions.delete(room);
             this._subscriptions.add(room);
-            this.log('user', `Subscription confirmed for room: ${room}`);
+            this.log('User', `Subscription confirmed for room: ${room}`);
         }
+    }
+    
+    private _triggerEvent(eventType: string, data?: any): void {
+        if (this._eventHandlers[eventType]) {
+            this._eventHandlers[eventType].forEach(handler => handler(data));
+        }
+    }
+
+    public _internalTriggerEvent(eventType: string, data?: any): void {
+        this._triggerEvent(eventType, data)
     }
 
     public sub(room: string): void {
         if (!this._subscriptions.has(room) && !this._pendingSubscriptions.has(room)) {
             this._pendingSubscriptions.add(room);
-            this._send({ action: 'subscribe', room });
-            this.log('user', `Subscription request sent for room: ${room}`);
+            this.send({ action: 'subscribe', room });
+            this.log('User', `Subscription request sent for room: ${room}`);
         } else {
-            this.log('user', `Already subscribed or pending subscription for room: ${room}`);
+            this.log('User', `Already subscribed or pending subscription for room: ${room}`);
         }
     }
 
@@ -298,16 +327,16 @@ export class EchoChamber {
         if (this._subscriptions.has(room) || this._pendingSubscriptions.has(room)) {
             this._subscriptions.delete(room);
             this._pendingSubscriptions.delete(room);
-            this._send({ action: 'unsubscribe', room });
-            this.log('user', `Unsubscribe request sent for room: ${room}`);
+            this.send({ action: 'unsubscribe', room });
+            this.log('User', `Unsubscribe request sent for room: ${room}`);
         } else {
-            this.log('user', `Attempt to unsubscribe from a room that was not subscribed: ${room}`);
+            this.log('User', `Attempt to unsubscribe from a room that was not subscribed: ${room}`);
         }
     }
 
     public pub(room: string, payload: any): void {
-        this._send({ action: 'publish', room, payload });
-        this.log('user', `User published to room: ${room}`, payload);
+        this.send({ action: 'publish', room, payload });
+        this.log('User', `User published to room: ${room}`, payload);
     }
 
     public on(eventType: string, handler: (data?: any) => void): void {
@@ -316,21 +345,10 @@ export class EchoChamber {
         }
         this._eventHandlers[eventType].push(handler);
     }
-    
-    private triggerEvent(eventType: string, data?: any): void {
-        if (this._eventHandlers[eventType]) {
-            this._eventHandlers[eventType].forEach(handler => handler(data));
-        }
-    }
 
     public cleanup(): void {
-        // Clear any pending subscription timeouts
-        // this._subscriptionTimeouts.forEach(timeout => clearTimeout(timeout));
-        // this._subscriptionTimeouts.clear();
-    
         this._pendingSubscriptions.clear();
     
-        // Existing cleanup logic
         if (this._pingInterval !== null) {
             clearInterval(this._pingInterval);
             this._pingInterval = null;
@@ -350,8 +368,5 @@ export class EchoChamber {
         this._subscriptions.clear();
         this._reconnectAttempts = 0;
         this._connectionState = 'closed';
-    
-        this.log('client', 'WebSocket client cleaned up');
     }
-
 }
