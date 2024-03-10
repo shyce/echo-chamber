@@ -124,6 +124,7 @@ class EchoChamber {
     connect() {
         return __awaiter(this, void 0, void 0, function* () {
             this._updateConnectionState('connecting');
+            this.log('client', 'Attempting to connect', this._serverUrl);
             if (this._socket) {
                 this._socket.close();
                 this._socket = null;
@@ -141,6 +142,7 @@ class EchoChamber {
     }
     _onOpen() {
         var _a, _b;
+        this.log('server', 'Connection established');
         this._updateConnectionState('connected');
         this._reconnectAttempts = 0;
         this._flushQueue();
@@ -162,6 +164,9 @@ class EchoChamber {
                 this.log('info', 'Pong received');
                 return;
             }
+            else {
+                this.log('server', 'Message received', event.data);
+            }
             const handlers = this._eventHandlers[data.action];
             handlers === null || handlers === void 0 ? void 0 : handlers.forEach(handler => handler(data));
             (_b = (_a = this.options).onMessage) === null || _b === void 0 ? void 0 : _b.call(_a, data);
@@ -169,11 +174,13 @@ class EchoChamber {
     }
     _onError(event) {
         var _a, _b;
+        this.log('error', 'WebSocket error encountered', event);
         this._updateConnectionState('error');
         (_b = (_a = this.options).onError) === null || _b === void 0 ? void 0 : _b.call(_a, event);
     }
     _onClose() {
         var _a, _b;
+        this.log('client', 'WebSocket connection closed');
         this._updateConnectionState('closed');
         (_b = (_a = this.options).onClose) === null || _b === void 0 ? void 0 : _b.call(_a);
         if (this._connectionState !== 'connecting') {
@@ -194,11 +201,12 @@ class EchoChamber {
         return __awaiter(this, void 0, void 0, function* () {
             var _a;
             if (((_a = this._socket) === null || _a === void 0 ? void 0 : _a.readyState) === WebSocket.OPEN) {
+                this.log('client', `Sending message: ${data.action}`, data);
                 const message = JSON.stringify(data);
                 this._socket.send(message);
-                this.log('info', `Sent: ${data.action}`, data);
             }
             else {
+                this.log('client', 'Queueing message', data);
                 this._messageQueue.push(JSON.stringify(data));
             }
         });
@@ -214,13 +222,21 @@ class EchoChamber {
     sub(room) {
         this._subscriptions.add(room);
         this._send({ action: 'subscribe', room });
+        this.log('user', `User subscribed to room: ${room}`);
     }
     unsub(room) {
-        this._subscriptions.delete(room);
-        this._send({ action: 'unsubscribe', room });
+        if (this._subscriptions.has(room)) {
+            this._subscriptions.delete(room);
+            this._send({ action: 'unsubscribe', room });
+            this.log('user', `User unsubscribed from room: ${room}`);
+        }
+        else {
+            this.log('user', `User attempted to unsubscribe from a room they were not subscribed to: ${room}`);
+        }
     }
     pub(room, payload) {
         this._send({ action: 'publish', room, payload });
+        this.log('user', `User published to room: ${room}`, payload);
     }
     on(eventType, handler) {
         if (!this._eventHandlers[eventType]) {
