@@ -7,39 +7,42 @@ export interface MessageData {
 export type ConnectionState = 'connecting' | 'connected' | 'error' | 'closed';
 
 export class EchoChamber {
+    private _boundOnClose: () => void;
+    private _boundOnError: (event: Event) => void;
+    private _boundOnMessage: (event: MessageEvent) => void;
+    private _boundOnOpen: () => void;
+    private _connectionState: ConnectionState = 'connecting';
+    private _eventHandlers: { [key: string]: ((data: any) => void)[] } = {};
+    private _messageQueue: string[] = [];
+    private _pendingSubscriptions: Set<string> = new Set();
+    private _pingInterval: ReturnType<typeof setInterval> | null = null;
+    private _reconnectAttempts: number = 0;
     private _serverUrl: string;
     private _socket: WebSocket | null = null;
+    private _subscriptions: Set<string> = new Set();
+
     public options: {
+        autoconnect: boolean;
+        logger: (category: string, message: string, ...args: any[]) => void;
+        maxReconnectDelay: number;
+        onClose?: () => void;
+        onConnect?: () => void;
+        onError?: (event: Event) => void;
+        onMessage?: (data: any) => void;
         pingInterval: number;
+        reconnect?: boolean;
         reconnectDelay: number;
         reconnectMultiplier: number;
-        maxReconnectDelay: number;
-        logger: (category: string, message: string, ...args: any[]) => void;
-        onError?: (event: Event) => void;
-        onClose?: () => void;
-        onMessage?: (data: any) => void;
-        onConnect?: () => void;
-        reconnect?: boolean;
     };
-    private _messageQueue: string[] = [];
-    private _subscriptions: Set<string> = new Set();
-    private _eventHandlers: { [key: string]: ((data: any) => void)[] } = {};
-    private _reconnectAttempts: number = 0;
-    private _pingInterval: ReturnType<typeof setInterval> | null = null;
-    private _connectionState: ConnectionState = 'connecting';
-
-    private _boundOnOpen: () => void;
-    private _boundOnMessage: (event: MessageEvent) => void;
-    private _boundOnError: (event: Event) => void;
-    private _boundOnClose: () => void;
 
     constructor(serverUrl: string, options: Partial<typeof EchoChamber.prototype.options> = {}) {
         this._serverUrl = this._formatServerUrl(serverUrl);
         this.options = {
+            autoconnect: true,
+            maxReconnectDelay: 30000,
             pingInterval: 30000,
             reconnectDelay: 1000,
             reconnectMultiplier: 2,
-            maxReconnectDelay: 30000,
             logger: (category, message, ...args) => {
                 let style = "";
                 let textStyle = "color: #a9a9a9;";
@@ -71,7 +74,9 @@ export class EchoChamber {
         this._boundOnMessage = this._onMessage.bind(this);
         this._boundOnError = this._onError.bind(this);
         this._boundOnClose = this._onClose.bind(this);
-        this.connect();
+        if (this.options.autoconnect) {
+            this.connect();
+        }
     }
 
     public get _internalConnectionState(): ConnectionState {
@@ -100,6 +105,14 @@ export class EchoChamber {
 
     public set _internalSubscriptions(subscriptions: Set<string>) {
         this._subscriptions = subscriptions;
+    }
+
+    public get _internalPendingSubscriptions(): Set<string> {
+        return this._pendingSubscriptions;
+    }
+
+    public set _internalPendingSubscriptions(pendingSubscriptions: Set<string>) {
+        this._pendingSubscriptions = pendingSubscriptions;
     }
 
     public get _internalSocket(): WebSocket | null {
@@ -138,9 +151,8 @@ export class EchoChamber {
         }
         return serverUrl
     }
-    
 
-    private async connect(): Promise<void> {
+    public async connect(): Promise<void> {
         this._updateConnectionState('connecting');
         this.log('client', 'Attempting to connect', this._serverUrl);
         if (this._socket) {
@@ -161,12 +173,36 @@ export class EchoChamber {
         this._pingInterval = setInterval(() => this._send({ action: 'ping' }), this.options.pingInterval);
     }
 
+    public connected(): boolean {
+        return this._socket !== null && this._socket.readyState === WebSocket.OPEN;
+    }
+    
+    public disconnect(): void {
+        if (this._pingInterval !== null) {
+            clearInterval(this._pingInterval);
+            this._pingInterval = null;
+        }
+    
+        if (this._socket && (this._socket.readyState === WebSocket.OPEN || this._socket.readyState === WebSocket.CONNECTING)) {
+            this._socket.close();
+        } else {
+            this._updateConnectionState('closed');
+            this.options.onClose?.();
+        }
+    
+        this._messageQueue = [];
+        this._subscriptions.clear();
+        this._pendingSubscriptions.clear();
+    
+        this.log('client', 'WebSocket client disconnected');
+    }
+
     private _onOpen(): void {
         this.log('server', 'Connection established');
         this._updateConnectionState('connected');
         this._reconnectAttempts = 0;
         this._flushQueue();
-        this._subscriptions.forEach(room => this.sub(room));
+        [...this._subscriptions, ...this._pendingSubscriptions].forEach(room => this.sub(room));
         this.options.onConnect?.();
     }
 
@@ -176,6 +212,11 @@ export class EchoChamber {
             data = JSON.parse(event.data);
         } catch (e) {
             this.log('error', 'Error parsing message', e);
+            return;
+        }
+
+        if (data.action === 'subscribed' && data.room) {
+            this._subscribed(data.room);
             return;
         }
 
@@ -239,20 +280,33 @@ export class EchoChamber {
         });
         this._messageQueue = [];
     }
+    
+    private _subscribed(room: string): void {
+        if (this._pendingSubscriptions.has(room)) {
+            this._pendingSubscriptions.delete(room);
+            this._subscriptions.add(room);
+            this.log('user', `Subscription confirmed for room: ${room}`);
+        }
+    }
 
     public sub(room: string): void {
-        this._subscriptions.add(room);
-        this._send({ action: 'subscribe', room });
-        this.log('user', `User subscribed to room: ${room}`);
+        if (!this._subscriptions.has(room) && !this._pendingSubscriptions.has(room)) {
+            this._pendingSubscriptions.add(room);
+            this._send({ action: 'subscribe', room });
+            this.log('user', `Subscription request sent for room: ${room}`);
+        } else {
+            this.log('user', `Already subscribed or pending subscription for room: ${room}`);
+        }
     }
 
     public unsub(room: string): void {
-        if (this._subscriptions.has(room)) {
+        if (this._subscriptions.has(room) || this._pendingSubscriptions.has(room)) {
             this._subscriptions.delete(room);
+            this._pendingSubscriptions.delete(room);
             this._send({ action: 'unsubscribe', room });
-            this.log('user', `User unsubscribed from room: ${room}`);
+            this.log('user', `Unsubscribe request sent for room: ${room}`);
         } else {
-            this.log('user', `User attempted to unsubscribe from a room they were not subscribed to: ${room}`);
+            this.log('user', `Attempt to unsubscribe from a room that was not subscribed: ${room}`);
         }
     }
 
@@ -269,25 +323,34 @@ export class EchoChamber {
     }
 
     public cleanup(): void {
+        // Clear any pending subscription timeouts
+        // this._subscriptionTimeouts.forEach(timeout => clearTimeout(timeout));
+        // this._subscriptionTimeouts.clear();
+    
+        this._pendingSubscriptions.clear();
+    
+        // Existing cleanup logic
         if (this._pingInterval !== null) {
             clearInterval(this._pingInterval);
             this._pingInterval = null;
         }
-
+    
         if (this._socket) {
             this._socket.removeEventListener('open', this._boundOnOpen);
             this._socket.removeEventListener('message', this._boundOnMessage);
             this._socket.removeEventListener('error', this._boundOnError);
             this._socket.removeEventListener('close', this._boundOnClose);
-
+    
             this._socket.close();
             this._socket = null;
         }
-
+    
         this._messageQueue = [];
         this._subscriptions.clear();
         this._reconnectAttempts = 0;
         this._connectionState = 'closed';
+    
+        this.log('client', 'WebSocket client cleaned up');
     }
 
 }

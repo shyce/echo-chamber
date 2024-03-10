@@ -34,15 +34,16 @@ typeof SuppressedError === "function" ? SuppressedError : function (error, suppr
 
 class EchoChamber {
     constructor(serverUrl, options = {}) {
-        this._socket = null;
-        this._messageQueue = [];
-        this._subscriptions = new Set();
-        this._eventHandlers = {};
-        this._reconnectAttempts = 0;
-        this._pingInterval = null;
         this._connectionState = 'connecting';
+        this._eventHandlers = {};
+        this._messageQueue = [];
+        this._pendingSubscriptions = new Set();
+        this._pingInterval = null;
+        this._reconnectAttempts = 0;
+        this._socket = null;
+        this._subscriptions = new Set();
         this._serverUrl = this._formatServerUrl(serverUrl);
-        this.options = Object.assign({ pingInterval: 30000, reconnectDelay: 1000, reconnectMultiplier: 2, maxReconnectDelay: 30000, logger: (category, message, ...args) => {
+        this.options = Object.assign({ autoconnect: true, maxReconnectDelay: 30000, pingInterval: 30000, reconnectDelay: 1000, reconnectMultiplier: 2, logger: (category, message, ...args) => {
                 let style = "";
                 let textStyle = "color: #a9a9a9;";
                 switch (category) {
@@ -69,7 +70,9 @@ class EchoChamber {
         this._boundOnMessage = this._onMessage.bind(this);
         this._boundOnError = this._onError.bind(this);
         this._boundOnClose = this._onClose.bind(this);
-        this.connect();
+        if (this.options.autoconnect) {
+            this.connect();
+        }
     }
     get _internalConnectionState() {
         return this._connectionState;
@@ -91,6 +94,12 @@ class EchoChamber {
     }
     set _internalSubscriptions(subscriptions) {
         this._subscriptions = subscriptions;
+    }
+    get _internalPendingSubscriptions() {
+        return this._pendingSubscriptions;
+    }
+    set _internalPendingSubscriptions(pendingSubscriptions) {
+        this._pendingSubscriptions = pendingSubscriptions;
     }
     get _internalSocket() {
         return this._socket;
@@ -140,13 +149,34 @@ class EchoChamber {
             this._pingInterval = setInterval(() => this._send({ action: 'ping' }), this.options.pingInterval);
         });
     }
+    connected() {
+        return this._socket !== null && this._socket.readyState === WebSocket.OPEN;
+    }
+    disconnect() {
+        var _a, _b;
+        if (this._pingInterval !== null) {
+            clearInterval(this._pingInterval);
+            this._pingInterval = null;
+        }
+        if (this._socket && (this._socket.readyState === WebSocket.OPEN || this._socket.readyState === WebSocket.CONNECTING)) {
+            this._socket.close();
+        }
+        else {
+            this._updateConnectionState('closed');
+            (_b = (_a = this.options).onClose) === null || _b === void 0 ? void 0 : _b.call(_a);
+        }
+        this._messageQueue = [];
+        this._subscriptions.clear();
+        this._pendingSubscriptions.clear();
+        this.log('client', 'WebSocket client disconnected');
+    }
     _onOpen() {
         var _a, _b;
         this.log('server', 'Connection established');
         this._updateConnectionState('connected');
         this._reconnectAttempts = 0;
         this._flushQueue();
-        this._subscriptions.forEach(room => this.sub(room));
+        [...this._subscriptions, ...this._pendingSubscriptions].forEach(room => this.sub(room));
         (_b = (_a = this.options).onConnect) === null || _b === void 0 ? void 0 : _b.call(_a);
     }
     _onMessage(event) {
@@ -158,6 +188,10 @@ class EchoChamber {
             }
             catch (e) {
                 this.log('error', 'Error parsing message', e);
+                return;
+            }
+            if (data.action === 'subscribed' && data.room) {
+                this._subscribed(data.room);
                 return;
             }
             if (data.action === 'pong') {
@@ -219,19 +253,32 @@ class EchoChamber {
         });
         this._messageQueue = [];
     }
-    sub(room) {
-        this._subscriptions.add(room);
-        this._send({ action: 'subscribe', room });
-        this.log('user', `User subscribed to room: ${room}`);
+    _subscribed(room) {
+        if (this._pendingSubscriptions.has(room)) {
+            this._pendingSubscriptions.delete(room);
+            this._subscriptions.add(room);
+            this.log('user', `Subscription confirmed for room: ${room}`);
+        }
     }
-    unsub(room) {
-        if (this._subscriptions.has(room)) {
-            this._subscriptions.delete(room);
-            this._send({ action: 'unsubscribe', room });
-            this.log('user', `User unsubscribed from room: ${room}`);
+    sub(room) {
+        if (!this._subscriptions.has(room) && !this._pendingSubscriptions.has(room)) {
+            this._pendingSubscriptions.add(room);
+            this._send({ action: 'subscribe', room });
+            this.log('user', `Subscription request sent for room: ${room}`);
         }
         else {
-            this.log('user', `User attempted to unsubscribe from a room they were not subscribed to: ${room}`);
+            this.log('user', `Already subscribed or pending subscription for room: ${room}`);
+        }
+    }
+    unsub(room) {
+        if (this._subscriptions.has(room) || this._pendingSubscriptions.has(room)) {
+            this._subscriptions.delete(room);
+            this._pendingSubscriptions.delete(room);
+            this._send({ action: 'unsubscribe', room });
+            this.log('user', `Unsubscribe request sent for room: ${room}`);
+        }
+        else {
+            this.log('user', `Attempt to unsubscribe from a room that was not subscribed: ${room}`);
         }
     }
     pub(room, payload) {
@@ -245,6 +292,11 @@ class EchoChamber {
         this._eventHandlers[eventType].push(handler);
     }
     cleanup() {
+        // Clear any pending subscription timeouts
+        // this._subscriptionTimeouts.forEach(timeout => clearTimeout(timeout));
+        // this._subscriptionTimeouts.clear();
+        this._pendingSubscriptions.clear();
+        // Existing cleanup logic
         if (this._pingInterval !== null) {
             clearInterval(this._pingInterval);
             this._pingInterval = null;
@@ -261,6 +313,7 @@ class EchoChamber {
         this._subscriptions.clear();
         this._reconnectAttempts = 0;
         this._connectionState = 'closed';
+        this.log('client', 'WebSocket client cleaned up');
     }
 }
 
