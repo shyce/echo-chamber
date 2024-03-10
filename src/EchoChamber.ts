@@ -142,6 +142,7 @@ export class EchoChamber {
 
     private async connect(): Promise<void> {
         this._updateConnectionState('connecting');
+        this.log('client', 'Attempting to connect', this._serverUrl);
         if (this._socket) {
             this._socket.close();
             this._socket = null;
@@ -161,6 +162,7 @@ export class EchoChamber {
     }
 
     private _onOpen(): void {
+        this.log('server', 'Connection established');
         this._updateConnectionState('connected');
         this._reconnectAttempts = 0;
         this._flushQueue();
@@ -180,6 +182,8 @@ export class EchoChamber {
         if (data.action === 'pong') {
             this.log('info', 'Pong received');
             return;
+        } else {
+            this.log('server', 'Message received', event.data);
         }
 
         const handlers = this._eventHandlers[data.action];
@@ -189,11 +193,13 @@ export class EchoChamber {
     }
 
     private _onError(event: Event): void {
+        this.log('error', 'WebSocket error encountered', event);
         this._updateConnectionState('error');
         this.options.onError?.(event);
     }
 
     private _onClose(): void {
+        this.log('client', 'WebSocket connection closed');
         this._updateConnectionState('closed');
         this.options.onClose?.();
         if (this._connectionState !== 'connecting') {
@@ -217,10 +223,11 @@ export class EchoChamber {
 
     private async _send(data: MessageData): Promise<void> {
         if (this._socket?.readyState === WebSocket.OPEN) {
+            this.log('client', `Sending message: ${data.action}`, data);
             const message = JSON.stringify(data);
             this._socket.send(message);
-            this.log('info', `Sent: ${data.action}`, data);
         } else {
+            this.log('client', 'Queueing message', data);
             this._messageQueue.push(JSON.stringify(data));
         }
     }
@@ -236,15 +243,22 @@ export class EchoChamber {
     public sub(room: string): void {
         this._subscriptions.add(room);
         this._send({ action: 'subscribe', room });
+        this.log('user', `User subscribed to room: ${room}`);
     }
 
     public unsub(room: string): void {
-        this._subscriptions.delete(room);
-        this._send({ action: 'unsubscribe', room });
+        if (this._subscriptions.has(room)) {
+            this._subscriptions.delete(room);
+            this._send({ action: 'unsubscribe', room });
+            this.log('user', `User unsubscribed from room: ${room}`);
+        } else {
+            this.log('user', `User attempted to unsubscribe from a room they were not subscribed to: ${room}`);
+        }
     }
 
     public pub(room: string, payload: any): void {
         this._send({ action: 'publish', room, payload });
+        this.log('user', `User published to room: ${room}`, payload);
     }
 
     public on(eventType: string, handler: (data: any) => void): void {
