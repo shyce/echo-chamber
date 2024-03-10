@@ -62,7 +62,7 @@ class EchoChamber {
                         style = "background: #9C27B0; color: #E1E1E1;";
                         break;
                 }
-                console.log(`%c${category}%c: ${message}`, `${sharedStyle}${style}`, ...args);
+                console.log(`%c${category}:`, `${sharedStyle}${style}`, message, ...args);
             }, log: true }, options);
         this._boundOnOpen = this._onOpen.bind(this);
         this._boundOnMessage = this._onMessage.bind(this);
@@ -219,8 +219,12 @@ class EchoChamber {
                 this.log('Server', 'Message received', event.data);
             }
             const handlers = this._eventHandlers[data.action];
-            handlers.forEach(handler => handler(data));
+            handlers === null || handlers === void 0 ? void 0 : handlers.forEach(handler => handler(data));
         });
+    }
+    simulateMessage(rawData) {
+        const event = new MessageEvent("message", { data: rawData });
+        this._onMessage(event);
     }
     _onError(event) {
         this.log('Error', 'WebSocket error encountered', event);

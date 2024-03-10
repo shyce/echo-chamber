@@ -438,19 +438,26 @@ describe("EchoChamber WebSocket interactions", () => {
             expect(echoChamber.options.reconnectMultiplier).toBe(2);
             expect(echoChamber.options.maxReconnectDelay).toBe(30000);
         });
-        test("Handles custom event handlers", (done) => {
-            const testMessage = { action: "customEvent", data: "testData" };
-            echoChamber = new EchoChamber(serverUrl, { log: false });
 
+        test("Processes message and invokes appropriate event handler", (done) => {
+            const testMessage = { action: "customEvent", data: "testData" };
+            const rawData = JSON.stringify(testMessage);
+    
             echoChamber.on("customEvent", (data) => {
                 expect(data).toEqual(testMessage);
                 done();
             });
-
-            mockServer.on("connection", (socket) => {
-                socket.send(JSON.stringify(testMessage));
-            });
+    
+            echoChamber.simulateMessage(rawData);
         });
+    
+        test("Gracefully handles message with no registered event handler", () => {
+            const testMessage = { action: "unhandledEvent", data: "noData" };
+            const rawData = JSON.stringify(testMessage);
+    
+            expect(() => echoChamber.simulateMessage(rawData)).not.toThrow();
+        });
+        
         test('Gracefully skips when no handlers are defined', () => {
             echoChamber = new EchoChamber(serverUrl, { log: false });
             echoChamber._internalEventHandlers = {};
@@ -513,29 +520,29 @@ describe("EchoChamber WebSocket interactions", () => {
         });
 
         const testCases = [
-            { category: 'Client', expectedColor: 'background: #007CF0; color: #E1E1E1;' },
-            { category: 'User', expectedColor: 'background: #009688; color: #E1E1E1;' },
-            { category: 'Server', expectedColor: 'background: #4CAF50; color: #E1E1E1;' },
-            { category: 'Error', expectedColor: 'background: #F44336; color: #E1E1E1;' },
-            { category: 'Info', expectedColor: 'background: #9C27B0; color: #E1E1E1;' },
+            { expectedCategory: 'Client', expectedColor: 'background: #007CF0; color: #E1E1E1;' },
+            { expectedCategory: 'User', expectedColor: 'background: #009688; color: #E1E1E1;' },
+            { expectedCategory: 'Server', expectedColor: 'background: #4CAF50; color: #E1E1E1;' },
+            { expectedCategory: 'Error', expectedColor: 'background: #F44336; color: #E1E1E1;' },
+            { expectedCategory: 'Info', expectedColor: 'background: #9C27B0; color: #E1E1E1;' },
         ];
 
-        testCases.forEach(({ category, expectedColor }) => {
-            test(`Correctly logs ${category} messages`, () => {
-                const message = 'Test message';
+        testCases.forEach(({ expectedCategory, expectedColor }) => {
+            test(`Correctly logs ${expectedCategory} messages`, () => {
+                const expectedMessage = 'Test message';
                 const additionalData = { foo: "bar" };
                 consoleSpy.mockClear();
 
-                echoChamber.log(category, message, additionalData);
+                echoChamber.log(expectedCategory, expectedMessage, additionalData);
                 expect(consoleSpy).toHaveBeenCalled();
 
-                const [formatString, categoryStyle, messageContent, additionalDataArg] = consoleSpy.mock.calls[0];
-                expect(formatString).toContain(category);
-                expect(formatString).toContain(message);
-                expect(categoryStyle).toContain(expectedColor);
+                const [category, color, message, additionalDataArg] = consoleSpy.mock.calls[0];
+                expect(category).toContain(expectedCategory);
+                expect(color).toContain(expectedColor);
+                expect(message).toContain(expectedMessage);
 
                 if (additionalDataArg) {
-                    expect(additionalDataArg).toEqual(JSON.stringify(additionalData));
+                    expect(additionalDataArg).toEqual(additionalData);
                 }
             });
         });

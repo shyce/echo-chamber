@@ -65,7 +65,7 @@ export class EchoChamber {
                         break;
                 }
 
-                console.log(`%c${category}%c: ${message}`, `${sharedStyle}${style}`, ...args);
+                console.log(`%c${category}:`, `${sharedStyle}${style}`, message,  ...args);
             },
             log: true,
             ...options,
@@ -249,7 +249,12 @@ export class EchoChamber {
         }
 
         const handlers = this._eventHandlers[data.action];
-        handlers.forEach(handler => handler(data));
+        handlers?.forEach(handler => handler(data));
+    }
+
+    public simulateMessage(rawData: string): void {
+        const event = new MessageEvent("message", { data: rawData });
+        this._onMessage(event);
     }
 
     private _onError(event: Event): void {
